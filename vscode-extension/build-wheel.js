@@ -34,6 +34,31 @@ function checkPython(cmd, args = []) {
 }
 
 /**
+ * Check whether `<cmd> <prefix...> -m pip --version` succeeds.
+ * uv-managed venvs typically omit pip, so probe before relying on it.
+ */
+function hasPip(cmd, prefix = []) {
+  const result = spawnSync(
+    cmd,
+    [...prefix, "-m", "pip", "--version"],
+    { windowsHide: true, stdio: "pipe", timeout: 10000 }
+  );
+  return result.status === 0;
+}
+
+/**
+ * Whether `uv` is on PATH.
+ */
+function hasUv() {
+  const result = spawnSync(
+    "uv",
+    ["--version"],
+    { windowsHide: true, stdio: "pipe", timeout: 10000 }
+  );
+  return result.status === 0;
+}
+
+/**
  * Find a Python >= 3.9 interpreter.
  * @returns {{ cmd: string, prefix: string[] }}
  */
@@ -131,11 +156,19 @@ async function main() {
   // 2. Find python
   const { cmd, prefix } = findPython();
 
-  // 3. Ensure build tool is available
-  await runInherited(cmd, [...prefix, "-m", "pip", "install", "--quiet", "--upgrade", "build"]);
-
-  // 4. Build wheel
-  await runInherited(cmd, [...prefix, "-m", "build", "--wheel", "--outdir", OUT_DIR, REPO_ROOT]);
+  // 3. Build wheel. Prefer pip + python -m build when pip is available; otherwise
+  // fall back to `uv build`, which handles uv-managed venvs that ship without pip.
+  if (hasPip(cmd, prefix)) {
+    await runInherited(cmd, [...prefix, "-m", "pip", "install", "--quiet", "--upgrade", "build"]);
+    await runInherited(cmd, [...prefix, "-m", "build", "--wheel", "--outdir", OUT_DIR, REPO_ROOT]);
+  } else if (hasUv()) {
+    await runInherited("uv", ["build", "--wheel", "--out-dir", OUT_DIR, REPO_ROOT]);
+  } else {
+    throw new Error(
+      `Python at ${cmd} has no pip module, and uv is not on PATH. ` +
+      `Install pip into the venv (python -m ensurepip) or install uv.`
+    );
+  }
 
   // 5. Verify exactly one .whl
   const files = (await fsp.readdir(OUT_DIR)).filter((f) => f.endsWith(".whl"));
