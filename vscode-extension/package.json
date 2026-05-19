@@ -37,6 +37,7 @@
       { "command": "arize.reconfigure", "title": "Arize: Reconfigure Tracing" },
       { "command": "arize.uninstall", "title": "Arize: Uninstall Harness" },
       { "command": "arize.refreshStatus", "title": "Arize: Refresh Status" },
+      { "command": "arize.setUser", "title": "Arize: Set User ID" },
       { "command": "arize.startCodexBuffer", "title": "Arize: Start Codex Buffer" },
       { "command": "arize.stopCodexBuffer", "title": "Arize: Stop Codex Buffer" },
       { "command": "arize.statusBarMenu", "title": "Arize: Status Menu" },

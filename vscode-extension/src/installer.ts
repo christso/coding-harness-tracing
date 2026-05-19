@@ -24,6 +24,8 @@ export interface InstallerBridge {
     signal?: AbortSignal,
   ): Promise<OperationResult>;
 
+  setUserId(userId: string): Promise<OperationResult>;
+
   loadStatus(): Promise<StatusPayload>;
 }
 
@@ -50,6 +52,19 @@ export function createBridgeInstaller(): InstallerBridge {
           success: false,
           error: "uninstall_failed",
           harness,
+          logs: [String(err)],
+        };
+      }
+    },
+
+    async setUserId(userId) {
+      try {
+        return await bridge.setUserId(userId);
+      } catch (err) {
+        return {
+          success: false,
+          error: "set_user_id_failed",
+          harness: null,
           logs: [String(err)],
         };
       }

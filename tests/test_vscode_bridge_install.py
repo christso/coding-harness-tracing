@@ -7,7 +7,7 @@ from unittest import mock
 
 import pytest
 
-from core.vscode_bridge.install import install, uninstall
+from core.vscode_bridge.install import install, set_user_id, uninstall
 from core.vscode_bridge.models import HARNESS_KEYS
 
 # ---------------------------------------------------------------------------
@@ -316,3 +316,49 @@ def test_uninstall_exception_captured():
     assert result["success"] is False
     assert result["error"] == "install_failed"
     assert any("permission denied" in line for line in result["logs"])
+
+
+# ---------------------------------------------------------------------------
+# set_user_id
+# ---------------------------------------------------------------------------
+
+
+def test_set_user_id_writes_top_level_key(tmp_path, monkeypatch):
+    import core.config as config_mod
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("harnesses: {}\n")
+    monkeypatch.setattr(config_mod, "CONFIG_FILE", str(config_path))
+
+    result = set_user_id("alice")
+
+    assert result["success"] is True
+    assert result["harness"] is None
+    config = config_mod.load_config()
+    assert config["user_id"] == "alice"
+
+
+def test_set_user_id_empty_string_clears_key(tmp_path, monkeypatch):
+    import core.config as config_mod
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("harnesses: {}\nuser_id: alice\n")
+    monkeypatch.setattr(config_mod, "CONFIG_FILE", str(config_path))
+
+    result = set_user_id("")
+
+    assert result["success"] is True
+    config = config_mod.load_config()
+    assert "user_id" not in config
+
+
+def test_set_user_id_failure_captured(monkeypatch):
+    def _boom(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("core.config.save_config", _boom)
+
+    result = set_user_id("bob")
+    assert result["success"] is False
+    assert result["error"] == "set_user_id_failed"
+    assert any("disk full" in line for line in result["logs"])

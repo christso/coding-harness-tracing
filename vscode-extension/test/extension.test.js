@@ -18,6 +18,7 @@ jest.mock("../src/sidebar", () => {
 jest.mock("../src/sidebarState", () => {
   const onOpenSetup = jest.fn(() => ({ dispose: jest.fn() }));
   const onOpenReconfigure = jest.fn(() => ({ dispose: jest.fn() }));
+  const onSetUser = jest.fn(() => ({ dispose: jest.fn() }));
   return {
     SidebarController: jest.fn().mockImplementation(() => ({
       attach: jest.fn(),
@@ -28,6 +29,7 @@ jest.mock("../src/sidebarState", () => {
       stopCodexBuffer: jest.fn().mockResolvedValue(undefined),
       onOpenSetup,
       onOpenReconfigure,
+      onSetUser,
       dispose: jest.fn(),
     })),
   };
@@ -94,6 +96,7 @@ const EXPECTED_COMMANDS = [
   "arize.reconfigure",
   "arize.uninstall",
   "arize.refreshStatus",
+  "arize.setUser",
   "arize.startCodexBuffer",
   "arize.stopCodexBuffer",
   "arize.statusBarMenu",

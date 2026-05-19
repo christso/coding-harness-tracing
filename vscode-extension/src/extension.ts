@@ -113,6 +113,48 @@ export function activate(ctx: vscode.ExtensionContext): void {
   );
 
   ctx.subscriptions.push(
+    vscode.commands.registerCommand("arize.setUser", async () => {
+      let currentUserId = "";
+      try {
+        const status = await installer.loadStatus();
+        currentUserId = status.user_id ?? "";
+      } catch {
+        // Bridge unavailable — proceed with empty default; setUserId will
+        // surface its own error if persisting fails.
+      }
+
+      const input = await vscode.window.showInputBox({
+        title: "Set Arize User ID",
+        prompt: "User ID attached to every span as user.id. Leave blank to clear.",
+        value: currentUserId,
+        ignoreFocusOut: true,
+      });
+      if (input === undefined) return;
+
+      const trimmed = input.trim();
+      if (trimmed === currentUserId) return;
+
+      const result = await installer.setUserId(trimmed);
+      if (!result.success) {
+        for (const line of result.logs) {
+          outputChannel.appendLine(line);
+        }
+        const action = await vscode.window.showErrorMessage(
+          `Failed to update user ID: ${result.error ?? "unknown error"}`,
+          "Show details",
+        );
+        if (action === "Show details") outputChannel.show();
+        return;
+      }
+
+      await Promise.all([controller.refresh(), statusBar.refresh()]);
+      vscode.window.showInformationMessage(
+        trimmed ? `Arize user ID set to "${trimmed}".` : "Arize user ID cleared.",
+      );
+    }),
+  );
+
+  ctx.subscriptions.push(
     vscode.commands.registerCommand("arize.startCodexBuffer", () =>
       controller.startCodexBuffer(),
     ),
@@ -185,6 +227,12 @@ export function activate(ctx: vscode.ExtensionContext): void {
   ctx.subscriptions.push(
     controller.onOpenReconfigure((harness: HarnessKey) => {
       vscode.commands.executeCommand("arize.reconfigure", harness);
+    }),
+  );
+
+  ctx.subscriptions.push(
+    controller.onSetUser(() => {
+      vscode.commands.executeCommand("arize.setUser");
     }),
   );
 }

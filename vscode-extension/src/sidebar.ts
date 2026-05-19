@@ -23,6 +23,7 @@ export interface SidebarViewState {
 
 export type SidebarAction =
   | { type: "setup" }
+  | { type: "setUser" }
   | { type: "reconfigure"; harness: HarnessKey }
   | { type: "uninstall"; harness: HarnessKey }
   | { type: "refresh" }
@@ -156,8 +157,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: var(--vscode-font-family, sans-serif); font-size: 13px; color: var(--fg); background: var(--bg); padding: 8px; }
-    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-    .header-title { font-weight: 600; font-size: 13px; opacity: 0.8; }
+    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; gap: 6px; }
+    .header-title { font-weight: 600; font-size: 13px; opacity: 0.8; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .header-actions { display: flex; align-items: center; gap: 4px; }
     .icon-btn { background: none; border: none; color: var(--fg); cursor: pointer; font-size: 14px; padding: 2px 4px; opacity: 0.7; }
     .icon-btn:hover { opacity: 1; }
     .error-banner { background: var(--error-bg); border: 1px solid var(--error-border); padding: 6px 8px; border-radius: 3px; margin-bottom: 8px; font-size: 12px; }
@@ -165,13 +167,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     .harness-row { border-bottom: 1px solid var(--border); padding: 6px 0; }
     .harness-name { font-weight: 600; }
     .harness-meta { font-size: 12px; opacity: 0.7; margin-top: 2px; }
+    .harness-meta.unconfigured { font-style: italic; }
     .harness-actions { margin-top: 4px; display: flex; gap: 6px; }
     .btn { background: var(--btn-bg); color: var(--btn-fg); border: none; padding: 3px 8px; border-radius: 3px; cursor: pointer; font-size: 12px; }
     .btn:hover { background: var(--btn-hover); }
     .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--fg); }
     .btn-secondary:hover { background: var(--border); }
-    .setup-link { color: var(--btn-bg); cursor: pointer; text-decoration: underline; font-size: 12px; }
-    .setup-link:hover { opacity: 0.8; }
   </style>
 </head>
 <body>
@@ -193,7 +194,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       // Header
       html += '<div class="header">';
       html += '<span class="header-title">' + escapeHtml(state.userId || "Arize Tracing") + '</span>';
+      html += '<span class="header-actions">';
+      html += '<button class="btn" data-action="setup" title="Configure tracing">Configure</button>';
+      html += '<button class="btn btn-secondary" data-action="setUser" title="Set the user ID attached to every span">Set User</button>';
       html += '<button class="icon-btn" data-action="refresh" title="Refresh">&#x21bb;</button>';
+      html += '</span>';
       html += '</div>';
 
       // Error banner
@@ -213,13 +218,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           if (h.backendLabel) meta += (meta ? " · " : "") + h.backendLabel;
           if (meta) html += '<div class="harness-meta">' + escapeHtml(meta) + '</div>';
           html += '<div class="harness-actions">';
-          html += '<button class="btn btn-secondary" data-action="reconfigure" data-harness="' + key + '">Reconfigure</button>';
           html += '<button class="btn btn-secondary" data-action="uninstall" data-harness="' + key + '">Uninstall</button>';
           html += '</div>';
         } else {
-          html += '<div class="harness-actions">';
-          html += '<span class="setup-link" data-action="setup">Set Up</span>';
-          html += '</div>';
+          html += '<div class="harness-meta unconfigured">Not configured</div>';
         }
         html += '</li>';
       }
@@ -240,7 +242,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       if (!el) return;
       var action = el.getAttribute("data-action");
       var harness = el.getAttribute("data-harness");
-      if (action === "reconfigure" || action === "uninstall") {
+      if (action === "uninstall") {
         sendAction({ type: action, harness: harness });
       } else {
         sendAction({ type: action });

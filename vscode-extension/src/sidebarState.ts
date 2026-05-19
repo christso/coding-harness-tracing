@@ -82,6 +82,9 @@ export class SidebarController implements vscode.Disposable {
   public readonly onOpenReconfigure: vscode.Event<HarnessKey> =
     this._onOpenReconfigure.event;
 
+  private readonly _onSetUser = new vscode.EventEmitter<void>();
+  public readonly onSetUser: vscode.Event<void> = this._onSetUser.event;
+
   constructor(provider: SidebarProvider, refreshIntervalMs?: number) {
     this._provider = provider;
     this._refreshIntervalMs = refreshIntervalMs ?? 30_000;
@@ -167,6 +170,10 @@ export class SidebarController implements vscode.Disposable {
         this._onOpenSetup.fire();
         break;
 
+      case "setUser":
+        this._onSetUser.fire();
+        break;
+
       case "reconfigure":
         this._onOpenReconfigure.fire(action.harness);
         break;
@@ -242,5 +249,6 @@ export class SidebarController implements vscode.Disposable {
     this._disposables = [];
     this._onOpenSetup.dispose();
     this._onOpenReconfigure.dispose();
+    this._onSetUser.dispose();
   }
 }

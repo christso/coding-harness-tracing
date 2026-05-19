@@ -48,6 +48,7 @@ function makeInstaller(status: StatusPayload): InstallerBridge {
   return {
     install: jest.fn(),
     uninstall: jest.fn(),
+    setUserId: jest.fn(),
     loadStatus: jest.fn().mockResolvedValue(status),
   };
 }

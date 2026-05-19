@@ -102,6 +102,33 @@ def install(request: Dict[str, Any]) -> Dict[str, Any]:
     return build_operation_result(success=True, harness=harness, logs=logs)
 
 
+def set_user_id(user_id: str) -> Dict[str, Any]:
+    """Set or clear the top-level ``user_id`` in ``config.yaml``.
+
+    Passing an empty string deletes the key. Returns an ``OperationResult``;
+    ``harness`` is ``None`` because this is a top-level config change.
+    """
+    try:
+        from core.config import delete_value, load_config, save_config, set_value
+
+        config = load_config()
+        if user_id:
+            set_value(config, "user_id", user_id)
+        else:
+            delete_value(config, "user_id")
+        save_config(config)
+    except Exception:
+        tb = traceback.format_exc()
+        return build_operation_result(
+            success=False,
+            error="set_user_id_failed",
+            harness=None,
+            logs=[tb],
+        )
+
+    return build_operation_result(success=True, harness=None, logs=[])
+
+
 def uninstall(harness: str) -> Dict[str, Any]:
     """Dispatch a non-interactive uninstall for one harness.
 

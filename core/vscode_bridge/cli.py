@@ -76,6 +76,10 @@ def _build_parser() -> argparse.ArgumentParser:
     uninstall_p = sub.add_parser("uninstall", help="Uninstall tracing for a harness")
     uninstall_p.add_argument("--harness", required=True, choices=HARNESS_KEYS, help="Harness to uninstall")
 
+    # set-user-id (top-level user_id in config.yaml; empty string clears)
+    set_user_p = sub.add_parser("set-user-id", help="Set or clear the top-level user_id in config.yaml")
+    set_user_p.add_argument("--user-id", default="", help="New user_id; empty string clears the field")
+
     # codex buffer commands
     sub.add_parser("codex-buffer-status", help="Show Codex buffer status")
     sub.add_parser("codex-buffer-start", help="Start Codex buffer")
@@ -161,6 +165,13 @@ def _run_uninstall(args: argparse.Namespace) -> int:
     return _drain_logs_and_emit(result)
 
 
+def _run_set_user_id(args: argparse.Namespace) -> int:
+    from core.vscode_bridge.install import set_user_id
+
+    result = set_user_id(args.user_id)
+    return _drain_logs_and_emit(result)
+
+
 def _run_codex_buffer_status() -> int:
     from core.vscode_bridge.codex import buffer_status
 
@@ -189,6 +200,7 @@ _DISPATCH = {
     "status": lambda args: _run_status(),
     "install": _run_install,
     "uninstall": _run_uninstall,
+    "set-user-id": _run_set_user_id,
     "codex-buffer-status": lambda args: _run_codex_buffer_status(),
     "codex-buffer-start": lambda args: _run_codex_buffer_start(),
     "codex-buffer-stop": lambda args: _run_codex_buffer_stop(),

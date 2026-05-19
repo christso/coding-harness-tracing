@@ -196,6 +196,13 @@ export async function uninstall(
   return runBridge<OperationResult>(["uninstall", "--harness", harness], opts);
 }
 
+export async function setUserId(
+  userId: string,
+  opts?: RunOptions
+): Promise<OperationResult> {
+  return runBridge<OperationResult>(["set-user-id", "--user-id", userId], opts);
+}
+
 export async function codexBufferStatus(
   opts?: RunOptions
 ): Promise<CodexBufferPayload> {

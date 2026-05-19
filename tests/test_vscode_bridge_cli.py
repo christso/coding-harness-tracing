@@ -421,6 +421,47 @@ class TestUninstall:
         assert code == 1
 
 
+class TestSetUserId:
+    @mock.patch("core.vscode_bridge.install.set_user_id")
+    def test_happy_path(self, mock_set, monkeypatch):
+        mock_set.return_value = {
+            "success": True,
+            "error": None,
+            "harness": None,
+            "logs": [],
+        }
+        code, lines, stderr = _run(["set-user-id", "--user-id", "alice"], monkeypatch)
+        assert code == 0
+        events = _parse_ndjson(lines)
+        assert events[-1]["event"] == "result"
+        assert events[-1]["payload"]["success"] is True
+        mock_set.assert_called_once_with("alice")
+
+    @mock.patch("core.vscode_bridge.install.set_user_id")
+    def test_clear_when_user_id_empty(self, mock_set, monkeypatch):
+        mock_set.return_value = {
+            "success": True,
+            "error": None,
+            "harness": None,
+            "logs": [],
+        }
+        code, _, _ = _run(["set-user-id", "--user-id", ""], monkeypatch)
+        assert code == 0
+        mock_set.assert_called_once_with("")
+
+    @mock.patch("core.vscode_bridge.install.set_user_id")
+    def test_user_id_default_is_empty(self, mock_set, monkeypatch):
+        mock_set.return_value = {
+            "success": True,
+            "error": None,
+            "harness": None,
+            "logs": [],
+        }
+        code, _, _ = _run(["set-user-id"], monkeypatch)
+        assert code == 0
+        mock_set.assert_called_once_with("")
+
+
 # ---------------------------------------------------------------------------
 # Codex buffer subcommands
 # ---------------------------------------------------------------------------
