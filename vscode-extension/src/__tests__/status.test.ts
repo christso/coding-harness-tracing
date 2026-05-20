@@ -25,6 +25,7 @@ function makeHarness(
       : null,
     scope: null,
     kiro_options: null,
+    repo_paths: null,
   };
 }
 

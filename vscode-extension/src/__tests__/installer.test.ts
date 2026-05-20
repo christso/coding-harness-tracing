@@ -76,6 +76,7 @@ function makeKiroRequest(
     with_skills: false,
     logging: null,
     kiro_options: { agent_name: "arize-traced", set_default: false },
+    repo_path: null,
     ...overrides,
   };
 }
@@ -96,6 +97,7 @@ function makeCodexRequest(
     with_skills: false,
     logging: null,
     kiro_options: null,
+    repo_path: null,
     ...overrides,
   };
 }
