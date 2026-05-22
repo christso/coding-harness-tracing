@@ -29,12 +29,12 @@ builds:
 
 archives:
   - id: ax-trace
-    builds: [ax-trace]
+    ids: [ax-trace]
     name_template: "ax-trace_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        format: zip
-    format: tar.gz
+        formats: [zip]
+    formats: [tar.gz]
     files:
       - LICENSE
       - README.md
