@@ -63,5 +63,5 @@ repos:
         name: Regenerate core/manifest.json
         entry: python scripts/gen_manifest.py
         language: system
-        files: ^tracing/[^/]+/constants\.py$
+        files: ^(tracing/[^/]+/constants\.py|scripts/gen_manifest\.py)$
         pass_filenames: false

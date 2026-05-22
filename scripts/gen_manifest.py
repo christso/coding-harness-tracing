@@ -2,10 +2,24 @@
 """Generate core/manifest.json from per-harness constants modules.
 
 Reads each tracing/<harness>/constants.py and extracts:
-  - DISPLAY_NAME, HARNESS_BIN, SETTINGS_FILE, HOOK_EVENTS, ARIZE_ENV_KEYS
+  - DISPLAY_NAME, HARNESS_BIN, SETTINGS_FILE (required)
+  - HOOK_EVENTS, ARIZE_ENV_KEYS (optional; default to empty list)
 
 Writes a stable, sorted JSON file at core/manifest.json. Designed to produce
 identical output on every run so a CI diff check is reliable.
+
+Schema notes for downstream consumers (the Go binary in cmd/ax-trace):
+  - `harnesses.<name>.hook_events` is heterogeneous across harnesses:
+    * dict {event_name: handler_basename} for harnesses that bind each event
+      to a distinct entry point (claude_code, copilot).
+    * list of event_name strings for harnesses where a single dispatcher
+      handles every event (cursor, kiro).
+    * empty list for harnesses that don't expose hooks (codex, gemini).
+    Consumers must handle all three shapes (or treat the field as opaque).
+  - `harnesses.kiro.settings_file` resolves to a directory (~/.kiro/agents/),
+    not a single file. Kiro stores one JSON file per agent in that directory;
+    the installer/uninstaller iterates contents. Consumers reading this field
+    should not assume it is regular-file-shaped.
 
 Usage: python scripts/gen_manifest.py [--check]
   --check: exit 1 if the generated content differs from the existing file.
@@ -14,6 +28,7 @@ Usage: python scripts/gen_manifest.py [--check]
 from __future__ import annotations
 
 import argparse
+import difflib
 import importlib
 import json
 import sys
@@ -22,9 +37,10 @@ from pathlib import Path
 HARNESSES = ["claude_code", "codex", "copilot", "cursor", "gemini", "kiro"]
 
 REQUIRED_FIELDS = ["DISPLAY_NAME", "HARNESS_BIN", "SETTINGS_FILE"]
-OPTIONAL_FIELDS: dict[str, object] = {
-    "HOOK_EVENTS": [],
-    "ARIZE_ENV_KEYS": [],
+# Use tuple defaults so the shared instance can't be mutated by accident.
+OPTIONAL_FIELDS: dict[str, tuple] = {
+    "HOOK_EVENTS": (),
+    "ARIZE_ENV_KEYS": (),
 }
 
 SHARED = {
@@ -36,20 +52,31 @@ SHARED = {
 
 SCHEMA_VERSION = 1
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_OUTPUT_PATH = REPO_ROOT / "core" / "manifest.json"
+
 
 def _coerce(value: object) -> object:
     """Convert non-JSON-serializable values into stable JSON-friendly forms.
 
-    Path objects under the current user's home are rewritten with a `~` prefix
-    so the generated manifest is identical across developers' machines.
+    Path handling rules (to keep the manifest portable across machines):
+      * Relative paths (e.g. project-local `.github/hooks/hooks.json`) are
+        emitted as posix strings verbatim.
+      * Absolute paths under `$HOME` are rewritten with a `~/` prefix.
+      * Absolute paths outside `$HOME` are an error — they would bake a
+        developer's machine layout into the committed manifest.
     """
     if isinstance(value, Path):
-        home = Path.home()
-        try:
-            rel = value.relative_to(home)
-            return "~/" + rel.as_posix()
-        except ValueError:
+        if not value.is_absolute():
             return value.as_posix()
+        try:
+            rel = value.relative_to(Path.home())
+        except ValueError:
+            raise ValueError(
+                f"refusing to serialize non-home absolute Path {value!s}: "
+                "manifest must be portable across developer machines"
+            )
+        return "~/" + rel.as_posix()
     if isinstance(value, tuple):
         return [_coerce(v) for v in value]
     if isinstance(value, dict):
@@ -60,73 +87,109 @@ def _coerce(value: object) -> object:
 
 
 def build_manifest() -> dict:
-    repo_root = Path(__file__).resolve().parent.parent
-    sys.path.insert(0, str(repo_root))
-
-    harnesses: dict[str, dict] = {}
-    for name in HARNESSES:
-        module_path = f"tracing.{name}.constants"
-        try:
-            mod = importlib.import_module(module_path)
-        except ImportError as e:
-            print(f"warning: could not import {module_path}: {e}", file=sys.stderr)
-            continue
-
-        entry: dict[str, object] = {}
-        for field in REQUIRED_FIELDS:
-            if not hasattr(mod, field):
+    """Load each harness's constants module and assemble the manifest dict."""
+    inserted = False
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+        inserted = True
+    try:
+        harnesses: dict[str, dict] = {}
+        for name in HARNESSES:
+            module_path = f"tracing.{name}.constants"
+            try:
+                mod = importlib.import_module(module_path)
+            except ImportError as e:
                 print(
-                    f"error: {module_path} missing required field {field}",
+                    f"warning: could not import {module_path}: {e}",
                     file=sys.stderr,
                 )
-                sys.exit(1)
-            entry[field.lower()] = _coerce(getattr(mod, field))
-        for field, default in OPTIONAL_FIELDS.items():
-            entry[field.lower()] = _coerce(getattr(mod, field, default))
-        harnesses[name] = entry
+                continue
 
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "harnesses": harnesses,
-        "shared": SHARED,
-    }
+            entry: dict[str, object] = {}
+            for field in REQUIRED_FIELDS:
+                if not hasattr(mod, field):
+                    print(
+                        f"error: {module_path} missing required field {field}",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                entry[field.lower()] = _coerce(getattr(mod, field))
+            for field, default in OPTIONAL_FIELDS.items():
+                entry[field.lower()] = _coerce(getattr(mod, field, default))
+            harnesses[name] = entry
+
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "harnesses": harnesses,
+            "shared": SHARED,
+        }
+    finally:
+        if inserted:
+            try:
+                sys.path.remove(str(REPO_ROOT))
+            except ValueError:
+                pass
 
 
 def serialize(manifest: dict) -> str:
+    """Stable JSON serialization: sorted keys, 2-space indent, trailing newline."""
     return json.dumps(manifest, sort_keys=True, indent=2) + "\n"
 
 
-def main() -> int:
+def generate(output_path: Path | None = None) -> str:
+    """Build the manifest, write it to disk, and return the serialized content.
+
+    Pass `output_path=None` to skip the disk write (useful for tests).
+    """
+    content = serialize(build_manifest())
+    if output_path is not None:
+        output_path.write_text(content)
+    return content
+
+
+def _check(output_path: Path) -> int:
+    """Return 0 if `output_path` matches a freshly generated manifest, else 1."""
+    new_content = serialize(build_manifest())
+    if not output_path.exists():
+        print(
+            f"error: {output_path} does not exist; run scripts/gen_manifest.py to create it",
+            file=sys.stderr,
+        )
+        return 1
+    existing = output_path.read_text()
+    if existing == new_content:
+        return 0
+    diff = difflib.unified_diff(
+        existing.splitlines(keepends=True),
+        new_content.splitlines(keepends=True),
+        fromfile=str(output_path),
+        tofile="generated",
+    )
+    sys.stderr.write(f"error: {output_path} is stale; run scripts/gen_manifest.py to regenerate\n")
+    sys.stderr.writelines(diff)
+    return 1
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--check",
         action="store_true",
         help="Exit 1 if output differs from existing file.",
     )
-    args = parser.parse_args()
-
-    repo_root = Path(__file__).resolve().parent.parent
-    output_path = repo_root / "core" / "manifest.json"
-    new_content = serialize(build_manifest())
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_OUTPUT_PATH,
+        help="Where to write (or check against) the manifest. Defaults to core/manifest.json.",
+    )
+    args = parser.parse_args(argv)
 
     if args.check:
-        if not output_path.exists():
-            print(
-                f"error: {output_path} does not exist; run scripts/gen_manifest.py to create it",
-                file=sys.stderr,
-            )
-            return 1
-        existing = output_path.read_text()
-        if existing != new_content:
-            print(
-                f"error: {output_path} is stale; run scripts/gen_manifest.py to regenerate",
-                file=sys.stderr,
-            )
-            return 1
-        return 0
+        return _check(args.output)
 
-    output_path.write_text(new_content)
-    print(f"wrote {output_path}")
+    generate(args.output)
+    print(f"wrote {args.output}")
     return 0
 
 
