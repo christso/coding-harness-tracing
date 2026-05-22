@@ -20,7 +20,42 @@ Claude Code CLI and the Claude Agent SDK share the same plugin, hooks, and confi
 
 > Installing Claude Code tracing via the Claude marketplace? See [Claude Code Tracing](tracing/claude_code/README.md#claude-code-marketplace) for the marketplace-specific flow — backend credentials must be set directly in `~/.claude/settings.json` since the install wizard is skipped.
 
-### Quickstart
+### ax-trace (recommended)
+
+`ax-trace` is a single-binary CLI that installs and manages tracing for every supported harness. It bootstraps its own Python toolchain via [uv](https://github.com/astral-sh/uv), so no system Python is required.
+
+**macOS / Linux:**
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Arize-ai/coding-harness-tracing/main/install-ax-trace.sh | bash
+```
+
+**Windows:**
+
+```powershell
+irm https://raw.githubusercontent.com/Arize-ai/coding-harness-tracing/main/install-ax-trace.ps1 | iex
+```
+
+Then configure a harness:
+
+```bash
+# interactive — prompts for backend, credentials, project
+ax-trace claude
+
+# scripted / CI — pass flags to skip prompts
+ax-trace codex --backend arize --space-id SPACE_ID --non-interactive
+
+# diagnostics, update, removal
+ax-trace doctor
+ax-trace update
+ax-trace uninstall
+```
+
+`ARIZE_API_KEY` and `PHOENIX_API_KEY` are accepted as environment variables only — never as CLI flags. In interactive mode, ax-trace prompts for the key with masked input when it is not already set.
+
+The `install.sh` / `install.bat` scripts below remain fully supported and produce identical state on disk to `ax-trace`.
+
+### Quickstart (install.sh / install.bat)
 
 Access and run the install script remotely to setup coding harness tracing in your local environment.
 
