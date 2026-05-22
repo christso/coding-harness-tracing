@@ -19,6 +19,41 @@ except ImportError:
 from core.config import delete_value, load_config, save_config, set_value
 
 # ---------------------------------------------------------------------------
+# Env-var helpers for non-interactive prompts
+# ---------------------------------------------------------------------------
+
+
+def _env_get(name: str) -> str | None:
+    """Return os.environ[name] stripped, or None if unset/blank."""
+    val = os.environ.get(name)
+    if val is None:
+        return None
+    val = val.strip()
+    return val if val else None
+
+
+def _non_interactive() -> bool:
+    val = os.environ.get("ARIZE_INSTALL_NON_INTERACTIVE", "").strip().lower()
+    return val in ("1", "true", "yes")
+
+
+def _require(name: str, human: str) -> str:
+    """Used in strict mode: read an env var or exit with a clear error."""
+    val = _env_get(name)
+    if val is None:
+        err(f"--non-interactive mode but {human} not provided (set {name})")
+        sys.exit(1)
+    return val
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    val = _env_get(name)
+    if val is None:
+        return default
+    return val.lower() in ("1", "true", "yes", "y")
+
+
+# ---------------------------------------------------------------------------
 # Shared path constants
 # ---------------------------------------------------------------------------
 
@@ -141,56 +176,111 @@ def prompt_backend(
     existing_harnesses whose ``target`` matches.  If any exist, offer a menu
     to copy credentials from one.
 
+    Honors ARIZE_INSTALL_* env vars: when ARIZE_INSTALL_BACKEND is set, the
+    interactive choice and copy-from menu are skipped. Per-field env vars
+    (ARIZE_INSTALL_PHOENIX_ENDPOINT, PHOENIX_API_KEY, ARIZE_API_KEY,
+    ARIZE_INSTALL_SPACE_ID, ARIZE_INSTALL_OTLP_ENDPOINT) bypass their prompts.
+    ARIZE_INSTALL_NON_INTERACTIVE=1 makes missing required fields a hard error.
+
     Returns (target, credentials).  credentials keys:
       phoenix: {"endpoint", "api_key"}
       arize:   {"endpoint", "api_key", "space_id"}
     """
-    print("Which backend do you want to use?")
-    print("")
-    print("  1) Phoenix (self-hosted)")
-    print("  2) Arize AX (cloud)")
-    print("")
-    choice = input("Enter choice [1/2]: ").strip()
-
-    if choice in ("1", "phoenix", "Phoenix", ""):
-        target = "phoenix"
-    elif choice in ("2", "arize", "ax", "AX"):
-        target = "arize"
-    else:
-        err("Invalid choice. Run setup again.")
+    backend_env = _env_get("ARIZE_INSTALL_BACKEND")
+    skip_copy_from = False
+    if backend_env is not None:
+        target = backend_env.lower()
+        if target not in ("arize", "phoenix"):
+            err(f"ARIZE_INSTALL_BACKEND must be 'arize' or 'phoenix', got: {backend_env!r}")
+            sys.exit(1)
+        skip_copy_from = True
+    elif _non_interactive():
+        err("--non-interactive mode but ARIZE_INSTALL_BACKEND not set")
         sys.exit(1)
-
-    # --- copy-from logic ---
-    copied = _try_copy_from(target, existing_harnesses)
-    if copied is not None:
-        return (target, copied)
-
-    # --- fresh credential prompts ---
-    if target == "phoenix":
+    else:
+        print("Which backend do you want to use?")
         print("")
-        phoenix_endpoint = input("Phoenix endpoint [http://localhost:6006]: ").strip()
-        if not phoenix_endpoint:
-            phoenix_endpoint = "http://localhost:6006"
-        api_key = getpass("Phoenix API Key (blank for no auth): ").strip()
+        print("  1) Phoenix (self-hosted)")
+        print("  2) Arize AX (cloud)")
+        print("")
+        choice = input("Enter choice [1/2]: ").strip()
+
+        if choice in ("1", "phoenix", "Phoenix", ""):
+            target = "phoenix"
+        elif choice in ("2", "arize", "ax", "AX"):
+            target = "arize"
+        else:
+            err("Invalid choice. Run setup again.")
+            sys.exit(1)
+
+    # --- copy-from logic (skipped when backend is env-provided) ---
+    if not skip_copy_from:
+        copied = _try_copy_from(target, existing_harnesses)
+        if copied is not None:
+            return (target, copied)
+
+    # --- credential gathering: env first, then prompt ---
+    if target == "phoenix":
+        phoenix_endpoint = _env_get("ARIZE_INSTALL_PHOENIX_ENDPOINT")
+        api_key_env = _env_get("PHOENIX_API_KEY")
+
+        if phoenix_endpoint is None:
+            if _non_interactive():
+                phoenix_endpoint = "http://localhost:6006"
+            else:
+                print("")
+                phoenix_endpoint = input("Phoenix endpoint [http://localhost:6006]: ").strip()
+                if not phoenix_endpoint:
+                    phoenix_endpoint = "http://localhost:6006"
+
+        if api_key_env is not None:
+            api_key = api_key_env
+        elif _non_interactive():
+            api_key = ""  # blank == no auth, valid for Phoenix
+        else:
+            api_key = getpass("Phoenix API Key (blank for no auth): ").strip()
+
         return ("phoenix", {"endpoint": phoenix_endpoint, "api_key": api_key})
 
     # arize
-    print("")
-    api_key = getpass("Arize API Key: ").strip()
-    space_id = input("Arize Space ID: ").strip()
+    api_key_env = _env_get("ARIZE_API_KEY")
+    space_id_env = _env_get("ARIZE_INSTALL_SPACE_ID")
+    otlp_env = _env_get("ARIZE_INSTALL_OTLP_ENDPOINT")
+
+    if api_key_env is not None:
+        api_key = api_key_env
+    elif _non_interactive():
+        err("--non-interactive mode but ARIZE_API_KEY not set")
+        sys.exit(1)
+    else:
+        print("")
+        api_key = getpass("Arize API Key: ").strip()
+
+    if space_id_env is not None:
+        space_id = space_id_env
+    elif _non_interactive():
+        err("--non-interactive mode but ARIZE_INSTALL_SPACE_ID not set")
+        sys.exit(1)
+    else:
+        space_id = input("Arize Space ID: ").strip()
 
     if not api_key or not space_id:
         err("API key and Space ID are required for Arize AX")
         sys.exit(1)
 
-    print("")
-    if sys.stdout.isatty() and os.name != "nt":
-        print("\033[1;33mOTLP Endpoint\033[0m (for hosted Arize instances, leave blank for default):")
-    else:
-        print("OTLP Endpoint (for hosted Arize instances, leave blank for default):")
-    otlp_endpoint = input("OTLP Endpoint [otlp.arize.com:443]: ").strip()
-    if not otlp_endpoint:
+    if otlp_env is not None:
+        otlp_endpoint = otlp_env
+    elif _non_interactive():
         otlp_endpoint = "otlp.arize.com:443"
+    else:
+        print("")
+        if sys.stdout.isatty() and os.name != "nt":
+            print("\033[1;33mOTLP Endpoint\033[0m (for hosted Arize instances, leave blank for default):")
+        else:
+            print("OTLP Endpoint (for hosted Arize instances, leave blank for default):")
+        otlp_endpoint = input("OTLP Endpoint [otlp.arize.com:443]: ").strip()
+        if not otlp_endpoint:
+            otlp_endpoint = "otlp.arize.com:443"
 
     return (
         "arize",
@@ -270,7 +360,17 @@ def _try_copy_from(target: str, existing_harnesses: dict | None) -> dict | None:
 
 
 def prompt_project_name(default: str) -> str:
-    """Prompt for project name. Returns default if blank."""
+    """Prompt for project name. Returns default if blank.
+
+    Honors ARIZE_INSTALL_PROJECT_NAME. In non-interactive mode without that
+    var, returns ``default`` rather than erroring, since the function already
+    has a default-fallback contract.
+    """
+    val = _env_get("ARIZE_INSTALL_PROJECT_NAME")
+    if val is not None:
+        return val
+    if _non_interactive():
+        return default
     print("")
     name = input(f"Project name [{default}]: ").strip()
     return name if name else default
@@ -281,7 +381,29 @@ def prompt_content_logging() -> dict:
 
     All three default to True to match the kit's existing capture-everything
     behavior. Users opt out per category.
+
+    Individual fields can be overridden via ARIZE_INSTALL_LOG_PROMPTS,
+    ARIZE_INSTALL_LOG_TOOL_DETAILS, ARIZE_INSTALL_LOG_TOOL_CONTENT. When all
+    three are set (or ARIZE_INSTALL_NON_INTERACTIVE=1), the banner and prompts
+    are skipped entirely.
     """
+    prompts_env = _env_get("ARIZE_INSTALL_LOG_PROMPTS")
+    tool_details_env = _env_get("ARIZE_INSTALL_LOG_TOOL_DETAILS")
+    tool_content_env = _env_get("ARIZE_INSTALL_LOG_TOOL_CONTENT")
+
+    if prompts_env is not None and tool_details_env is not None and tool_content_env is not None:
+        return {
+            "prompts": prompts_env.lower() in ("1", "true", "yes", "y"),
+            "tool_details": tool_details_env.lower() in ("1", "true", "yes", "y"),
+            "tool_content": tool_content_env.lower() in ("1", "true", "yes", "y"),
+        }
+    if _non_interactive():
+        return {
+            "prompts": _env_bool("ARIZE_INSTALL_LOG_PROMPTS", True),
+            "tool_details": _env_bool("ARIZE_INSTALL_LOG_TOOL_DETAILS", True),
+            "tool_content": _env_bool("ARIZE_INSTALL_LOG_TOOL_CONTENT", True),
+        }
+
     print("")
     if sys.stdout.isatty() and os.name != "nt":
         print("\033[1;33mSecurity:\033[0m Traces can contain sensitive data — credentials, PII, file contents.")
@@ -290,14 +412,18 @@ def prompt_content_logging() -> dict:
     print("All content is logged by default. Opt out per category to match your security needs.")
     print("")
 
-    log_prompts = input("  Log user prompts? [Y/n]: ").strip().lower()
-    log_tool_details = input("  Log what tools were asked to do (commands, file paths, URLs)? [Y/n]: ").strip().lower()
-    log_tool_content = input("  Log what tools returned (file contents, command output)? [Y/n]: ").strip().lower()
+    def _ask(env_val: str | None, prompt_text: str) -> bool:
+        if env_val is not None:
+            return env_val.lower() in ("1", "true", "yes", "y")
+        ans = input(prompt_text).strip().lower()
+        return ans not in ("n", "no")
 
     return {
-        "prompts": log_prompts not in ("n", "no"),
-        "tool_details": log_tool_details not in ("n", "no"),
-        "tool_content": log_tool_content not in ("n", "no"),
+        "prompts": _ask(prompts_env, "  Log user prompts? [Y/n]: "),
+        "tool_details": _ask(
+            tool_details_env, "  Log what tools were asked to do (commands, file paths, URLs)? [Y/n]: "
+        ),
+        "tool_content": _ask(tool_content_env, "  Log what tools returned (file contents, command output)? [Y/n]: "),
     }
 
 
@@ -314,7 +440,16 @@ def write_logging_config(logging_block: dict, config_path: str | None = None) ->
 
 
 def prompt_user_id() -> str:
-    """Optional user ID prompt. Returns "" if skipped."""
+    """Optional user ID prompt. Returns "" if skipped.
+
+    Honors ARIZE_INSTALL_USER_ID. In non-interactive mode without that var,
+    returns "" since user_id is optional.
+    """
+    val = _env_get("ARIZE_INSTALL_USER_ID")
+    if val is not None:
+        return val
+    if _non_interactive():
+        return ""
     print("")
     if sys.stdout.isatty() and os.name != "nt":
         print("\033[0;34mOptional:\033[0m Set a user ID to identify your spans (useful for teams).")
@@ -322,6 +457,32 @@ def prompt_user_id() -> str:
         print("Optional: Set a user ID to identify your spans (useful for teams).")
     user_id = input("User ID (leave blank to skip): ").strip()
     return user_id
+
+
+def prompt_verbose() -> bool:
+    """Optional verbose-mode prompt. Returns False if skipped.
+
+    When True, hook handlers write trace summaries to stderr in addition to
+    OTLP export (the existing ARIZE_VERBOSE=true behavior, just made persistent
+    via config.yaml). Honors ARIZE_INSTALL_VERBOSE; defaults to False in
+    non-interactive mode.
+    """
+    val = _env_get("ARIZE_INSTALL_VERBOSE")
+    if val is not None:
+        return val.lower() in ("1", "true", "yes", "y")
+    if _non_interactive():
+        return False
+    print("")
+    if sys.stdout.isatty() and os.name != "nt":
+        print(
+            "\033[0;34mOptional:\033[0m Verbose mode prints trace summaries to your terminal in addition to sending them to the backend."
+        )
+    else:
+        print(
+            "Optional: Verbose mode prints trace summaries to your terminal in addition to sending them to the backend."
+        )
+    ans = input("Enable verbose mode? [y/N]: ").strip().lower()
+    return ans in ("y", "yes")
 
 
 def write_config(
