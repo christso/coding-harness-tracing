@@ -26,9 +26,9 @@ type Manifest struct {
 }
 
 type HarnessEntry struct {
-	DisplayName  string   `json:"display_name"`
-	HarnessBin   string   `json:"harness_bin"`
-	SettingsFile string   `json:"settings_file"`
+	DisplayName  string `json:"display_name"`
+	HarnessBin   string `json:"harness_bin"`
+	SettingsFile string `json:"settings_file"`
 	// HookEvents is deferred-parsed: some harnesses encode it as an array of
 	// event names, others as an object mapping event name -> hook script.
 	// Consumers that care about the contents can unmarshal it themselves.

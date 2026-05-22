@@ -2,17 +2,12 @@ version: 2
 
 project_name: ax-trace
 
-monorepo:
-  tag_prefix: ax-trace-
-
 before:
   hooks:
-    - cmd: go mod download
-      dir: cmd/ax-trace
+    - go mod download
 
 builds:
   - id: ax-trace
-    dir: cmd/ax-trace
     main: .
     binary: ax-trace
     env:
