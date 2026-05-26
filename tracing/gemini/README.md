@@ -18,7 +18,7 @@ macOS / Linux:
 curl -sSL https://raw.githubusercontent.com/Arize-ai/coding-harness-tracing/main/install-ax-trace.sh | bash
 
 # Install Gemini tracing
-ax-trace gemini
+ax-trace add gemini
 
 # Uninstall Gemini tracing
 ax-trace uninstall gemini
@@ -31,7 +31,7 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/Arize-ai/coding-harness-tracing/main/install-ax-trace.ps1 | iex
 
 # Install Gemini tracing
-ax-trace gemini
+ax-trace add gemini
 
 # Uninstall Gemini tracing
 ax-trace uninstall gemini
@@ -41,14 +41,14 @@ For unattended installs, pass values as flags and set credentials via environmen
 
 ```bash
 export ARIZE_API_KEY="<your-arize-api-key>"
-ax-trace gemini \
+ax-trace add gemini \
   --backend arize \
   --space-id <your-arize-space-id> \
   --project-name gemini \
   --non-interactive
 ```
 
-Run `ax-trace gemini --help` for the full list of flags.
+Run `ax-trace add gemini --help` for the full list of flags.
 
 ### Alternative: install.sh / install.bat
 

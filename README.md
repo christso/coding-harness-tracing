@@ -36,10 +36,10 @@ Then configure a harness:
 
 ```bash
 # interactive — prompts for backend, credentials, project
-ax-trace claude
+ax-trace add claude
 
 # scripted / CI — pass flags to skip prompts
-ax-trace codex --backend arize --space-id SPACE_ID --non-interactive
+ax-trace add codex --backend arize --space-id SPACE_ID --non-interactive
 
 # diagnostics, update, removal
 ax-trace doctor

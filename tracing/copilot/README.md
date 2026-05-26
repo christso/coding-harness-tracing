@@ -18,7 +18,7 @@ macOS / Linux:
 curl -sSL https://raw.githubusercontent.com/Arize-ai/coding-harness-tracing/main/install-ax-trace.sh | bash
 
 # Install Copilot tracing
-ax-trace copilot
+ax-trace add copilot
 
 # Uninstall
 ax-trace uninstall copilot
@@ -31,7 +31,7 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/Arize-ai/coding-harness-tracing/main/install-ax-trace.ps1 | iex
 
 # Install Copilot tracing
-ax-trace copilot
+ax-trace add copilot
 
 # Uninstall
 ax-trace uninstall copilot
@@ -42,7 +42,7 @@ Non-interactive install (CI, scripted setup) — pass credentials via environmen
 ```bash
 export ARIZE_API_KEY=...
 export ARIZE_SPACE_ID=...
-ax-trace copilot \
+ax-trace add copilot \
   --non-interactive \
   --backend arize \
   --project-name copilot

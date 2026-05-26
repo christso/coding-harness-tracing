@@ -41,6 +41,12 @@ func init() {
 		harnessNames = []string{"claude_code", "codex", "copilot", "cursor", "gemini", "kiro"}
 	}
 
+	addCmd := &cobra.Command{
+		Use:   "add <harness>",
+		Short: "Install and configure tracing for a harness",
+		Long:  "Install and configure tracing for a supported coding harness. Pass a harness name as the subcommand (claude, codex, copilot, cursor, gemini, kiro).",
+	}
+
 	for _, name := range harnessNames {
 		harnessName := name
 		userFacingName := strings.TrimSuffix(harnessName, "_code")
@@ -54,8 +60,10 @@ func init() {
 			},
 		}
 		addInstallFlags(cmd, f)
-		rootCmd.AddCommand(cmd)
+		addCmd.AddCommand(cmd)
 	}
+
+	rootCmd.AddCommand(addCmd)
 }
 
 func addInstallFlags(cmd *cobra.Command, f *installFlags) {

@@ -19,7 +19,7 @@ macOS / Linux:
 curl -sSL https://raw.githubusercontent.com/Arize-ai/coding-harness-tracing/main/install-ax-trace.sh | bash
 
 # Install Kiro tracing
-ax-trace kiro
+ax-trace add kiro
 
 # Uninstall
 ax-trace uninstall kiro
@@ -32,7 +32,7 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/Arize-ai/coding-harness-tracing/main/install-ax-trace.ps1 | iex
 
 # Install Kiro tracing
-ax-trace kiro
+ax-trace add kiro
 
 # Uninstall
 ax-trace uninstall kiro
@@ -43,7 +43,7 @@ ax-trace uninstall kiro
 Pre-set every prompt with flags and env vars for unattended installs (CI, devcontainers, fleet provisioning). `ARIZE_API_KEY` (or `PHOENIX_API_KEY`) is read from the environment only — never pass it as a flag.
 
 ```bash
-ARIZE_API_KEY="$ARIZE_API_KEY" ax-trace kiro \
+ARIZE_API_KEY="$ARIZE_API_KEY" ax-trace add kiro \
   --non-interactive \
   --backend arize \
   --space-id YOUR_SPACE_ID \
