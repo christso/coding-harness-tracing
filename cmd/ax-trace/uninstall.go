@@ -5,53 +5,69 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	axexec "github.com/Arize-ai/coding-harness-tracing/cmd/ax-trace/internal/exec"
+	"github.com/Arize-ai/coding-harness-tracing/cmd/ax-trace/internal/manifest"
 	"github.com/Arize-ai/coding-harness-tracing/cmd/ax-trace/internal/paths"
 )
 
-// uninstallSelections holds the per-harness --<harness> boolean flags. When
-// none are set, `ax-trace uninstall` does a full wipe. When one or more are
-// set, only those harnesses are uninstalled and the shared runtime is left
-// in place.
+// uninstallSelections holds the per-harness --<harness> boolean flags, keyed
+// by each harness's config.yaml alias (e.g. "claude-code"). Flags are
+// registered dynamically from the manifest, so a new harness needs no changes
+// here. When none are set, `ax-trace uninstall` does a full wipe; when one or
+// more are set, only those harnesses are uninstalled and the shared runtime is
+// left in place.
 type uninstallSelections struct {
-	claudeCode bool
-	codex      bool
-	copilot    bool
-	cursor     bool
-	gemini     bool
-	kiro       bool
+	flags map[string]*bool // config-key -> bound flag value
+	order []string         // config-keys in registration order
 }
 
-// selected returns the harness keys (as they appear in config.yaml) that
-// the user opted into via --<harness> flags, in a deterministic order.
+// selected returns the config.yaml keys the user opted into via --<harness>
+// flags, in registration order (deterministic).
 func (s *uninstallSelections) selected() []string {
 	var keys []string
-	if s.claudeCode {
-		keys = append(keys, "claude-code")
-	}
-	if s.codex {
-		keys = append(keys, "codex")
-	}
-	if s.copilot {
-		keys = append(keys, "copilot")
-	}
-	if s.cursor {
-		keys = append(keys, "cursor")
-	}
-	if s.gemini {
-		keys = append(keys, "gemini")
-	}
-	if s.kiro {
-		keys = append(keys, "kiro")
+	for _, key := range s.order {
+		if *s.flags[key] {
+			keys = append(keys, key)
+		}
 	}
 	return keys
 }
 
+// harnessFlagSpec describes one --<harness> uninstall flag.
+type harnessFlagSpec struct {
+	key     string // config.yaml alias, e.g. "claude-code"
+	display string // human name used in the flag description
+}
+
+// harnessFlagSpecs returns the harnesses to expose as uninstall flags, derived
+// from the manifest (hyphenated config alias + display name). Falls back to
+// defaultHarnessNames if the manifest can't be loaded, so --help still works.
+func harnessFlagSpecs() []harnessFlagSpec {
+	var specs []harnessFlagSpec
+	if m, err := manifest.Load(); err == nil {
+		for _, name := range m.HarnessNames() {
+			key := strings.ReplaceAll(name, "_", "-")
+			display := m.Harnesses[name].DisplayName
+			if display == "" {
+				display = key
+			}
+			specs = append(specs, harnessFlagSpec{key: key, display: display})
+		}
+		return specs
+	}
+	for _, name := range defaultHarnessNames {
+		key := strings.ReplaceAll(name, "_", "-")
+		specs = append(specs, harnessFlagSpec{key: key, display: key})
+	}
+	return specs
+}
+
 func init() {
-	s := &uninstallSelections{}
+	s := &uninstallSelections{flags: map[string]*bool{}}
 	cmd := &cobra.Command{
 		Use:   "uninstall",
 		Short: "Uninstall selected harnesses, or all harnesses + the shared runtime",
@@ -71,12 +87,12 @@ and leaves the shared runtime in place.`,
 			return runUninstallSelected(cmd.Context(), keys)
 		},
 	}
-	cmd.Flags().BoolVar(&s.claudeCode, "claude-code", false, "Uninstall Claude Code tracing")
-	cmd.Flags().BoolVar(&s.codex, "codex", false, "Uninstall Codex CLI tracing")
-	cmd.Flags().BoolVar(&s.copilot, "copilot", false, "Uninstall GitHub Copilot tracing")
-	cmd.Flags().BoolVar(&s.cursor, "cursor", false, "Uninstall Cursor tracing")
-	cmd.Flags().BoolVar(&s.gemini, "gemini", false, "Uninstall Gemini CLI tracing")
-	cmd.Flags().BoolVar(&s.kiro, "kiro", false, "Uninstall Kiro tracing")
+	for _, h := range harnessFlagSpecs() {
+		v := new(bool)
+		s.flags[h.key] = v
+		s.order = append(s.order, h.key)
+		cmd.Flags().BoolVar(v, h.key, false, fmt.Sprintf("Uninstall %s tracing", h.display))
+	}
 	rootCmd.AddCommand(cmd)
 }
 

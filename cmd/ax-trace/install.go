@@ -31,14 +31,19 @@ type installFlags struct {
 	nonInteractive  bool
 }
 
+// defaultHarnessNames is the fallback harness list (manifest/package keys, in
+// underscore form) used when the manifest can't be loaded, so --help still
+// works on a broken install. Shared by the add and uninstall commands.
+var defaultHarnessNames = []string{"claude_code", "codex", "copilot", "cursor", "gemini", "kiro"}
+
 func init() {
-	// Load manifest to enumerate harnesses. If load fails, fall back to a
-	// hardcoded list so --help still works on a broken install.
+	// Load manifest to enumerate harnesses. If load fails, fall back to the
+	// default list so --help still works on a broken install.
 	var harnessNames []string
 	if m, err := manifest.Load(); err == nil {
 		harnessNames = m.HarnessNames()
 	} else {
-		harnessNames = []string{"claude_code", "codex", "copilot", "cursor", "gemini", "kiro"}
+		harnessNames = defaultHarnessNames
 	}
 
 	addCmd := &cobra.Command{
