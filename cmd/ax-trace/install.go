@@ -155,7 +155,7 @@ func runInstall(ctx context.Context, harnessName string, f *installFlags) error 
 		return err
 	}
 	if exitCode != 0 {
-		os.Exit(exitCode)
+		return &exitCodeError{code: exitCode}
 	}
 	return nil
 }

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -41,7 +40,7 @@ func runDoctor(ctx context.Context) error {
 	}
 
 	if anyFail {
-		os.Exit(3)
+		return &exitCodeError{code: 3}
 	}
 	return nil
 }

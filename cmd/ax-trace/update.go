@@ -77,7 +77,7 @@ func runUpdate(ctx context.Context) error {
 			return fmt.Errorf("re-registering %s: %w", key, err)
 		}
 		if exitCode != 0 {
-			os.Exit(exitCode)
+			return &exitCodeError{code: exitCode}
 		}
 	}
 

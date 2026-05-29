@@ -192,7 +192,7 @@ func runUninstallAll(ctx context.Context) error {
 	// state. This leaves breadcrumbs (bootstrap log, lock file) for debugging
 	// a partial uninstall.
 	if exitCode != 0 {
-		os.Exit(exitCode)
+		return &exitCodeError{code: exitCode}
 	}
 
 	if err := os.RemoveAll(axTraceHome); err != nil {

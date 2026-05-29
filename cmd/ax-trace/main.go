@@ -2,6 +2,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -19,11 +20,16 @@ var rootCmd = &cobra.Command{
 	Long: `ax-trace is a portable CLI for installing and managing
 Arize coding-harness-tracing across Claude Code, Codex, Copilot,
 Cursor, Gemini, and Kiro.`,
-	SilenceUsage: true,
+	SilenceUsage:  true,
+	SilenceErrors: true, // main owns all error output (avoids cobra double-printing)
 }
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
+		var ec *exitCodeError
+		if errors.As(err, &ec) {
+			os.Exit(ec.code) // specific status, no message
+		}
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
