@@ -2297,6 +2297,9 @@ class TestDeferredLlmSpan:
     def test_deferred_llm_carries_conversation_id_and_user_id(self, captured_spans, monkeypatch):
         """The flushed LLM span includes cursor.conversation.id and user.id when present."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        # _resolve_user_id prefers env.user_id over payload user_email; clear env so
+        # the test exercises the payload-only branch deterministically across machines.
+        monkeypatch.setenv("ARIZE_USER_ID", "")
         with mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=1000):
             _dispatch(
                 "afterAgentResponse",
