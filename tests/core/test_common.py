@@ -661,6 +661,144 @@ class TestBuildSpan:
         assert result == golden_span
 
 
+# ── build_span status tests ───────────────────────────────────────────────
+
+
+class TestBuildSpanStatus:
+    """``build_span`` accepts optional ``status_code`` / ``status_message`` kwargs.
+
+    OTLP status codes: 0=UNSET, 1=OK (default), 2=ERROR.
+    Backwards-compatible: with no kwargs, output must be byte-for-byte identical
+    to the prior behavior (``status == {"code": 1}``, no ``message`` key).
+    """
+
+    def _span(self, result):
+        return result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+
+    def test_default_status_is_ok_with_no_message(self):
+        """No status kwargs → status is {"code": 1} with no ``message`` key."""
+        result = build_span(
+            name="t",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
+            start_ms=1000,
+            end_ms=2000,
+        )
+        assert self._span(result)["status"] == {"code": 1}
+
+    def test_error_status_with_message(self):
+        """status_code=2 + status_message='x' → {"code": 2, "message": "x"}."""
+        result = build_span(
+            name="t",
+            kind="TOOL",
+            span_id="aa",
+            trace_id="bb",
+            start_ms=1000,
+            end_ms=2000,
+            status_code=2,
+            status_message="x",
+        )
+        assert self._span(result)["status"] == {"code": 2, "message": "x"}
+
+    def test_error_status_empty_message_omits_message_key(self):
+        """status_code=2 + empty status_message → {"code": 2} (no ``message`` key)."""
+        result = build_span(
+            name="t",
+            kind="TOOL",
+            span_id="aa",
+            trace_id="bb",
+            start_ms=1000,
+            end_ms=2000,
+            status_code=2,
+            status_message="",
+        )
+        assert self._span(result)["status"] == {"code": 2}
+
+    def test_default_status_message_is_empty(self):
+        """status_code=2 with no status_message kwarg → no ``message`` key."""
+        result = build_span(
+            name="t",
+            kind="TOOL",
+            span_id="aa",
+            trace_id="bb",
+            start_ms=1000,
+            end_ms=2000,
+            status_code=2,
+        )
+        assert self._span(result)["status"] == {"code": 2}
+
+    def test_unset_status_code(self):
+        """status_code=0 (UNSET) is honored."""
+        result = build_span(
+            name="t",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
+            start_ms=1000,
+            end_ms=2000,
+            status_code=0,
+        )
+        assert self._span(result)["status"] == {"code": 0}
+
+    def test_ok_status_with_message_includes_message(self):
+        """status_code=1 + non-empty status_message → {"code": 1, "message": ...}.
+
+        Behavior is uniform across codes: a non-empty message is included regardless of code.
+        """
+        result = build_span(
+            name="t",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
+            start_ms=1000,
+            end_ms=2000,
+            status_code=1,
+            status_message="all good",
+        )
+        assert self._span(result)["status"] == {"code": 1, "message": "all good"}
+
+    def test_status_kwargs_must_be_keyword_only(self):
+        """``status_code`` / ``status_message`` are last-positioned; positional callers
+        with the current 9-arg signature must continue to work and yield OK status.
+
+        Calls build_span with all current positional args and asserts the resulting
+        status is the default OK status with no message. This guards against an
+        implementation that accidentally reorders or renames params.
+        """
+        result = build_span(
+            "t",  # name
+            "LLM",  # kind
+            "aa",  # span_id
+            "bb",  # trace_id
+            "",  # parent_span_id
+            1000,  # start_ms
+            2000,  # end_ms
+            {"k": "v"},  # attrs
+            "svc",  # service_name
+            "scope",  # scope_name
+        )
+        assert self._span(result)["status"] == {"code": 1}
+
+    def test_existing_callers_unaffected_byte_for_byte(self, golden_span):
+        """Calling build_span without status kwargs produces identical output
+        to today's build (golden fixture has ``status == {"code": 1}``).
+        """
+        result = build_span(
+            name="Turn 1",
+            kind="LLM",
+            span_id="abcdef1234567890",
+            trace_id="0123456789abcdef0123456789abcdef",
+            parent_span_id="",
+            start_ms=1711987200000,
+            end_ms=1711987201000,
+            attrs={"session.id": "sess-1", "input.value": "hello"},
+            service_name="test-service",
+            scope_name="test-scope",
+        )
+        assert result == golden_span
+
+
 # ── build_multi_span tests ────────────────────────────────────────────────
 
 
