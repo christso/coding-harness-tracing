@@ -22,7 +22,6 @@ JSON as a CLI argument). No stdout response expected.
 from __future__ import annotations
 
 import json
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -334,20 +333,6 @@ def _extract_turn_from_rollout(rollout_path: Path, turn_id: str) -> "dict | None
 # ---------------------------------------------------------------------------
 
 
-def _runtime_attrs() -> dict:
-    attrs = {}
-    for env_name, attr_name in (
-        ("ARIZE_CLIENT_NAME", "client.name"),
-        ("ARIZE_MACHINE_ID", "host.machine_id"),
-        ("ARIZE_HOSTNAME", "host.name"),
-        ("ARIZE_IP_ADDRESS", "host.ip"),
-    ):
-        value = os.environ.get(env_name, "").strip()
-        if value:
-            attrs[attr_name] = value
-    return attrs
-
-
 def _build_and_send_spans(thread_id: str, turn_id: str, turn: dict) -> None:
     """Assemble the LLM + TOOL spans from an extracted turn and ship them."""
     project_name = env.project_name or "codex"
@@ -368,7 +353,6 @@ def _build_and_send_spans(thread_id: str, turn_id: str, turn: dict) -> None:
         "input.value": user_prompt,
         "output.value": final_output,
         "codex.thread_id": thread_id,
-        **_runtime_attrs(),
     }
     if turn_id:
         attrs["codex.turn_id"] = turn_id
@@ -408,7 +392,6 @@ def _build_and_send_spans(thread_id: str, turn_id: str, turn: dict) -> None:
             "input.value": redact_content(env.log_tool_details, args_raw),
             "output.value": redact_content(env.log_tool_content, output_raw),
             "session.id": thread_id,
-            **_runtime_attrs(),
         }
         if entry.get("call_id"):
             tool_attrs["codex.tool.call_id"] = entry["call_id"]
@@ -507,7 +490,6 @@ def _send_legacy_single_span(thread_id: str, turn_id: str, input_json: dict) -> 
         "codex.thread_id": thread_id,
         "codex.turn_id": turn_id,
         "codex.notify_fallback": "true",
-        **_runtime_attrs(),
     }
     if env.user_id:
         attrs["user.id"] = env.user_id

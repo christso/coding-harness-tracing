@@ -350,10 +350,6 @@ class TestBuildAndSendSpans:
 
     def test_multi_span_with_one_tool(self, monkeypatch):
         monkeypatch.setenv("ARIZE_PROJECT_NAME", "codex")
-        monkeypatch.setenv("ARIZE_CLIENT_NAME", "codex")
-        monkeypatch.setenv("ARIZE_MACHINE_ID", "machine-123")
-        monkeypatch.setenv("ARIZE_HOSTNAME", "host-a")
-        monkeypatch.setenv("ARIZE_IP_ADDRESS", "10.0.0.5")
         turn = {
             "trace_count": 1,
             "turn_start_ms": 1000,
@@ -399,18 +395,12 @@ class TestBuildAndSendSpans:
         assert parent_attrs["codex.approval_mode"]["stringValue"] == "on-request"
         assert parent_attrs["codex.sandbox_mode"]["stringValue"] == "workspace-write"
         assert parent_attrs["llm.token_count.total"]["intValue"] == 15
-        assert parent_attrs["client.name"]["stringValue"] == "codex"
-        assert parent_attrs["host.machine_id"]["stringValue"] == "machine-123"
-        assert parent_attrs["host.name"]["stringValue"] == "host-a"
-        assert parent_attrs["host.ip"]["stringValue"] == "10.0.0.5"
 
         child_attrs = _attrs_of_span(spans[1])
         assert child_attrs["tool.name"]["stringValue"] == "exec_command"
         assert child_attrs["codex.tool.call_id"]["stringValue"] == "c1"
         assert child_attrs["input.value"]["stringValue"] == '{"cmd":"ls"}'
         assert child_attrs["output.value"]["stringValue"] == "ok"
-        assert child_attrs["client.name"]["stringValue"] == "codex"
-        assert child_attrs["host.machine_id"]["stringValue"] == "machine-123"
 
     def test_single_span_when_no_tool_calls(self):
         turn = {
