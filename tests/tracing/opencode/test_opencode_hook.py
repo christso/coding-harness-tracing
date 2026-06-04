@@ -695,6 +695,207 @@ class TestPendingTurnFailSafe:
 
 
 # ---------------------------------------------------------------------------
+# Cross-turn (multi-turn) snapshot dedup — opencode's SDK returns ALL session
+# messages on every snapshot pull, so prior-turn user messages reappear in
+# subsequent reconciles. Re-opening closed turns would emit phantom CHAINs
+# and inflate trace_count. This is the core invariant for opencode.
+# ---------------------------------------------------------------------------
+
+
+def _multi_turn_payload(ptype: str = "reconcile") -> dict:
+    """Snapshot containing turn 1 (already processed) + new turn 2 messages."""
+    base = _load_fixture("reconcile_basic.json")
+    turn2 = [
+        {
+            "info": {
+                "id": "msg_user_2",
+                "sessionID": "ses_basic",
+                "role": "user",
+                "time": {"created": 10000},
+                "agent": "build",
+                "model": {"providerID": "anthropic", "modelID": "claude-sonnet-4"},
+            },
+            "parts": [
+                {
+                    "id": "prt_u_2",
+                    "sessionID": "ses_basic",
+                    "messageID": "msg_user_2",
+                    "type": "text",
+                    "text": "do something else",
+                }
+            ],
+        },
+        {
+            "info": {
+                "id": "msg_assist_2",
+                "sessionID": "ses_basic",
+                "role": "assistant",
+                "time": {"created": 11000, "completed": 12000},
+                "parentID": "msg_user_2",
+                "modelID": "claude-sonnet-4",
+                "providerID": "anthropic",
+                "mode": "build",
+                "path": {"cwd": "/home/user/myproj", "root": "/home/user"},
+                "cost": 0,
+                "tokens": {
+                    "input": 5,
+                    "output": 3,
+                    "reasoning": 0,
+                    "cache": {"read": 0, "write": 0},
+                },
+            },
+            "parts": [
+                {
+                    "id": "prt_t_2",
+                    "sessionID": "ses_basic",
+                    "messageID": "msg_assist_2",
+                    "type": "text",
+                    "text": "done.",
+                }
+            ],
+        },
+    ]
+    return {**base, "type": ptype, "messages": base["messages"] + turn2}
+
+
+class TestMultiTurnSnapshotDedup:
+    """Once a turn is closed, replaying its user message in a later snapshot
+    must NOT re-open the turn or emit phantom CHAINs."""
+
+    def test_replay_of_closed_snapshot_emits_nothing(self, mock_resolve, mock_ensure, state, captured_spans):
+        """The shim is allowed to redeliver the same closed snapshot. Every
+        replay after the first cycle must produce zero new spans."""
+        _handle_reconcile(_load_fixture("reconcile_basic.json"))
+        _handle_close(dict(_load_fixture("reconcile_basic.json"), type="close"))
+        baseline = len(captured_spans)
+        assert baseline == 4  # 1 LLM + 2 TOOL + 1 CHAIN
+        for _ in range(3):
+            _handle_reconcile(_load_fixture("reconcile_basic.json"))
+        assert len(captured_spans) == baseline
+        # And no fail-safe phantom CHAIN was emitted.
+        for c in _by_kind(captured_spans, "CHAIN"):
+            assert "fail-safe" not in _get_attrs(c)["output.value"]["stringValue"]
+
+    def test_trace_count_not_inflated_by_replay(self, mock_resolve, mock_ensure, state, captured_spans):
+        _handle_reconcile(_load_fixture("reconcile_basic.json"))
+        _handle_close(dict(_load_fixture("reconcile_basic.json"), type="close"))
+        assert state.get("trace_count") == "1"
+        for _ in range(5):
+            _handle_reconcile(_load_fixture("reconcile_basic.json"))
+        assert state.get("trace_count") == "1"
+
+    def test_multi_turn_reconcile_no_phantom_chain(self, mock_resolve, mock_ensure, state, captured_spans):
+        """After turn 1 is closed, a snapshot containing turn 1 + turn 2 must:
+        - NOT re-open turn 1 (no phantom CHAIN, no trace_count bump from replay)
+        - open turn 2 fresh
+        - emit only turn 2's NEW LLM (no tools in turn 2 fixture)
+        - NOT emit any CHAIN yet (close hasn't fired)"""
+        _handle_reconcile(_load_fixture("reconcile_basic.json"))
+        _handle_close(dict(_load_fixture("reconcile_basic.json"), type="close"))
+        spans_before = len(captured_spans)
+        chains_before = len(_by_kind(captured_spans, "CHAIN"))
+
+        _handle_reconcile(_multi_turn_payload("reconcile"))
+
+        # No new CHAIN at all (no force-close phantom).
+        assert len(_by_kind(captured_spans, "CHAIN")) == chains_before
+        # Exactly one new span: the LLM for assistant 2.
+        new_spans = captured_spans[spans_before:]
+        assert len(new_spans) == 1
+        assert _kind(new_spans[0]) == "LLM"
+        # trace_count incremented to 2 (only the genuinely new turn opens).
+        assert state.get("trace_count") == "2"
+        # Current turn state points at turn 2.
+        assert state.get("current_user_message_id") == "msg_user_2"
+        # The closed marker for turn 1 is set.
+        assert state.get("closed_user_msg_user_1") is not None
+
+    def test_multi_turn_close_emits_only_one_new_chain(self, mock_resolve, mock_ensure, state, captured_spans):
+        """Closing a multi-turn snapshot after turn 1 was already closed must
+        emit EXACTLY one new CHAIN (for turn 2) with turn 2's input/output."""
+        _handle_reconcile(_load_fixture("reconcile_basic.json"))
+        _handle_close(dict(_load_fixture("reconcile_basic.json"), type="close"))
+        chains_before = len(_by_kind(captured_spans, "CHAIN"))
+
+        _handle_close(_multi_turn_payload("close"))
+
+        chains_after = _by_kind(captured_spans, "CHAIN")
+        assert len(chains_after) == chains_before + 1
+        turn2_chain = chains_after[-1]
+        attrs = _get_attrs(turn2_chain)
+        # The new CHAIN uses turn 2's prompt + assistant text, NOT turn 1's
+        # (this guards the "stale assistant poisons next CHAIN" bug).
+        assert attrs["input.value"]["stringValue"] == "do something else"
+        assert attrs["output.value"]["stringValue"] == "done."
+        # No fail-safe phantom was emitted.
+        for c in chains_after:
+            assert "fail-safe" not in _get_attrs(c)["output.value"]["stringValue"]
+
+    def test_full_two_turn_cycle_counts(self, mock_resolve, mock_ensure, state, captured_spans):
+        """Full lifecycle: reconcile+close turn 1, then reconcile+close turn 2
+        (via multi-turn snapshot). End state: 2 turns, 2 chains, 2 LLMs, 2 tools."""
+        _handle_reconcile(_load_fixture("reconcile_basic.json"))
+        _handle_close(dict(_load_fixture("reconcile_basic.json"), type="close"))
+        _handle_reconcile(_multi_turn_payload("reconcile"))
+        _handle_close(_multi_turn_payload("close"))
+
+        assert state.get("trace_count") == "2"
+        assert state.get("tool_count") == "2"  # only turn 1 had tools
+        assert len(_by_kind(captured_spans, "CHAIN")) == 2
+        assert len(_by_kind(captured_spans, "LLM")) == 2
+        assert len(_by_kind(captured_spans, "TOOL")) == 2
+
+    def test_closed_user_marker_blocks_reopen_after_failsafe(self, mock_resolve, mock_ensure, state, captured_spans):
+        """A turn closed via fail-safe must also be marked closed, so a later
+        replay of that user message doesn't open yet another phantom turn."""
+        # Pre-set: a pending turn keyed on msg_user_prior.
+        state.set("current_trace_id", "p" * 32)
+        state.set("current_trace_span_id", "q" * 16)
+        state.set("current_trace_start_time", "500")
+        state.set("current_trace_prompt", "prior prompt")
+        state.set("current_user_message_id", "msg_user_prior")
+
+        # A snapshot whose user message id == msg_user_prior should now no-op.
+        # (Simulate the SDK replaying the prior user message after fail-safe.)
+        # First, trigger the fail-safe by reconciling a NEW user message.
+        _handle_reconcile(_load_fixture("reconcile_basic.json"))
+        assert state.get("closed_user_msg_user_prior") is not None
+
+        # Now feed a synthetic snapshot whose user message id IS msg_user_prior.
+        replay = {
+            "type": "reconcile",
+            "sessionID": "ses_basic",
+            "messages": [
+                {
+                    "info": {
+                        "id": "msg_user_prior",
+                        "sessionID": "ses_basic",
+                        "role": "user",
+                        "time": {"created": 500},
+                    },
+                    "parts": [
+                        {
+                            "id": "prt_prior",
+                            "sessionID": "ses_basic",
+                            "messageID": "msg_user_prior",
+                            "type": "text",
+                            "text": "prior prompt",
+                        }
+                    ],
+                }
+            ],
+        }
+        chains_before = len(_by_kind(captured_spans, "CHAIN"))
+        trace_count_before = state.get("trace_count")
+        _handle_reconcile(replay)
+        # No new CHAIN, no trace_count bump.
+        assert len(_by_kind(captured_spans, "CHAIN")) == chains_before
+        assert state.get("trace_count") == trace_count_before
+        # The current turn (msg_user_1) is untouched.
+        assert state.get("current_user_message_id") == "msg_user_1"
+
+
+# ---------------------------------------------------------------------------
 # main() entry point
 # ---------------------------------------------------------------------------
 

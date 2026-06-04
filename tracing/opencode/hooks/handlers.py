@@ -132,7 +132,7 @@ def _tool_parts(parts: list) -> list:
 # ---------------------------------------------------------------------------
 
 
-def _close_pending_turn(state: StateManager) -> None:
+def _close_pending_turn(state: StateManager, reason: str = "(closed by reconcile fail-safe)") -> None:
     """Emit a CHAIN root for any pending turn, then clear trace state.
 
     Called when a new user message arrives while a prior turn is still open
@@ -149,13 +149,14 @@ def _close_pending_turn(state: StateManager) -> None:
     user_id = state.get("user_id") or ""
     start_time = state.get("current_trace_start_time") or str(get_timestamp_ms())
     prompt = state.get("current_trace_prompt") or ""
+    pending_uid = state.get("current_user_message_id") or ""
 
     attrs: dict[str, Any] = {
         "session.id": session_id,
         "openinference.span.kind": "CHAIN",
         "project.name": project_name,
         "input.value": redact_content(env.log_prompts, prompt),
-        "output.value": "(closed by reconcile fail-safe)",
+        "output.value": reason,
     }
     if user_id:
         attrs["user.id"] = user_id
@@ -174,6 +175,9 @@ def _close_pending_turn(state: StateManager) -> None:
     )
     _send_span_async(span)
 
+    if pending_uid:
+        state.set(f"closed_user_{pending_uid}", "1")
+
     state.delete("current_trace_id")
     state.delete("current_trace_span_id")
     state.delete("current_trace_start_time")
@@ -182,9 +186,14 @@ def _close_pending_turn(state: StateManager) -> None:
 
 
 def _open_turn_if_new(state: StateManager, user_info: dict, user_parts: list) -> None:
-    """Open a new turn keyed by the user message id. No-op if already open."""
+    """Open a new turn keyed by the user message id. No-op if already open or
+    already closed (the SDK returns full session history on every snapshot,
+    so prior-turn user messages reappear and must not re-open closed turns)."""
     uid = user_info.get("id") or ""
     if not uid:
+        return
+
+    if state.get(f"closed_user_{uid}") is not None:
         return
 
     if state.get("current_user_message_id") == uid:
@@ -403,7 +412,7 @@ def _emit_tool_span(state: StateManager, tool_part: dict) -> None:
         attrs["user.id"] = user_id
 
     status_code = 2 if is_error else 1
-    status_message = output_raw if is_error else ""
+    status_message = redact_content(env.log_tool_content, output_raw) if is_error else ""
 
     span = build_span(
         tool_name,
@@ -449,8 +458,13 @@ def _reconcile_messages(state: StateManager, messages: list) -> Optional[dict]:
             completed = (info.get("time") or {}).get("completed")
             if completed is not None:
                 _emit_llm_span(state, info, parts)
-                final_assistant_info = info
-                final_assistant_parts = parts
+                # Track as the "final" assistant ONLY if it belongs to the
+                # currently open turn — otherwise a stale assistant from a
+                # closed turn replayed in the snapshot would poison the
+                # output.value of the next Turn CHAIN.
+                if info.get("parentID") == state.get("current_user_message_id"):
+                    final_assistant_info = info
+                    final_assistant_parts = parts
             # Always process the tool parts (they may be completed even if
             # the assistant message has not yet completed in some snapshots).
             for tp in _tool_parts(parts):
@@ -520,6 +534,10 @@ def _handle_close(input_json: dict) -> None:
         SCOPE_NAME,
     )
     _send_span_async(span)
+
+    pending_uid = state.get("current_user_message_id") or ""
+    if pending_uid:
+        state.set(f"closed_user_{pending_uid}", "1")
 
     state.delete("current_trace_id")
     state.delete("current_trace_span_id")
