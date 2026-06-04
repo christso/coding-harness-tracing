@@ -11,9 +11,10 @@
 
 set -euo pipefail
 
-REPO_URL="https://github.com/Arize-ai/coding-harness-tracing.git"
-INSTALL_BRANCH="${ARIZE_INSTALL_BRANCH:-main}"
-TARBALL_URL="https://github.com/Arize-ai/coding-harness-tracing/archive/refs/heads/${INSTALL_BRANCH}.tar.gz"
+REPO_URL="${ARIZE_INSTALL_REPO_URL:-https://github.com/christso/coding-harness-tracing.git}"
+TARBALL_REPO_URL="${ARIZE_INSTALL_TARBALL_REPO_URL:-https://github.com/christso/coding-harness-tracing}"
+INSTALL_BRANCH="${ARIZE_INSTALL_BRANCH:-tsoyang-phoenix-traces-fix}"
+TARBALL_URL="${TARBALL_REPO_URL}/archive/refs/heads/${INSTALL_BRANCH}.tar.gz"
 INSTALL_DIR="${HOME}/.arize/harness"
 VENV_DIR="${INSTALL_DIR}/venv"
 
@@ -262,7 +263,7 @@ main() {
             --branch)
                 i=$((i + 1))
                 INSTALL_BRANCH="${args[$i]:-main}"
-                TARBALL_URL="https://github.com/Arize-ai/coding-harness-tracing/archive/refs/heads/${INSTALL_BRANCH}.tar.gz"
+                TARBALL_URL="${TARBALL_REPO_URL}/archive/refs/heads/${INSTALL_BRANCH}.tar.gz"
                 ;;
             *) [[ -z "$subcmd" ]] && subcmd="${args[$i]}" ;;
         esac
