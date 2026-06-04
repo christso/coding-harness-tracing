@@ -13,7 +13,7 @@ set -euo pipefail
 
 REPO_URL="${ARIZE_INSTALL_REPO_URL:-https://github.com/christso/coding-harness-tracing.git}"
 TARBALL_REPO_URL="${ARIZE_INSTALL_TARBALL_REPO_URL:-https://github.com/christso/coding-harness-tracing}"
-INSTALL_BRANCH="${ARIZE_INSTALL_BRANCH:-tsoyang-phoenix-traces-fix}"
+INSTALL_BRANCH="${ARIZE_INSTALL_BRANCH:-phoenix-exporter-fix}"
 TARBALL_URL="${TARBALL_REPO_URL}/archive/refs/heads/${INSTALL_BRANCH}.tar.gz"
 INSTALL_DIR="${HOME}/.arize/harness"
 VENV_DIR="${INSTALL_DIR}/venv"
